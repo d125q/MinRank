@@ -1,0 +1,616 @@
+\documentclass{article}
+
+%
+% Packages
+%
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage[svgnames, psnames, x11names, table]{xcolor}
+\usepackage{textcomp}
+\usepackage[hmargin=.93in, vmargin=.93in, a4paper]{geometry}
+\usepackage[babel, activate={true, nocompatibility}, final, tracking=true,
+kerning=true, spacing=true]{microtype}
+\usepackage{mathtools, amsthm, amssymb, xfrac, mathrsfs, cancel, upgreek, bm}
+\usepackage{complexity}
+\usepackage{graphicx}
+\usepackage{caption,subcaption}
+\usepackage[unicode, colorlinks, breaklinks]{hyperref}
+\usepackage{smartref}
+\usepackage[nameinlink]{cleveref}
+\usepackage[operators, primitives]{cryptocode}
+\usepackage{xr}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage[binary-units, detect-all, detect-display-math]{siunitx}
+\usepackage{tcolorbox}
+\usepackage[newfloat]{minted}
+\usepackage{algorithm, algpseudocode, varwidth}
+\usepackage{booktabs}
+\usepackage[bottom]{footmisc}
+\usepackage{footnotebackref}
+\usepackage[hyperref, backref, backend=biber, style=alphabetic, eprint=false]
+{biblatex}
+\usepackage{lmodern}
+
+%
+% Package options
+%
+
+\addbibresource{Bibliography.bib}
+\renewcommand*{\bibfont}{\small}
+\AtEveryBibitem{%
+  \ifentrytype{manual}{%
+  }{%
+    \clearfield{url}%
+    \clearfield{urldate}%
+  }%
+}
+
+\SetTracking{encoding={*}, shape=sc}{40}
+\graphicspath{{figure/}}
+
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\GF}{GF}
+
+\newclass{\MR}{MR}
+
+\renewcommand{\mkbibnamefirst}[1]{\textsc{#1}}
+\renewcommand{\mkbibnamelast}[1]{\textsc{#1}}
+\renewcommand{\mkbibnameprefix}[1]{\textsc{#1}}
+\renewcommand{\mkbibnameaffix}[1]{\textsc{#1}}
+
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newlength{\savedcolsep}
+
+\renewcommand*{\vec}[1]{\bm{\mathrm{#1}}}
+\newcommand{\matr}[1]{\bm{\mathrm{#1}}}
+\newcommand{\MQ}{\ensuremath{\mathcal{MQ}}}
+\newcommand{\STX}{\ensuremath{\overline{\matr{STX}}}}
+
+\hypersetup{
+  pdfinfo={
+    Title={The MinRank Problem: Survey, Implementation, and One Application},
+    Subject={Cryptography},
+    Author={Dario Gjorgjevski},
+    Keywords={Multivariate Cryptography, MQ Cryptosystems, MinRank, Gröbner
+      Bases, Linear Algebra, Algebraic Cryptanalysis}
+  },
+  linkcolor=MediumBlue,
+  urlcolor=DarkCyan,
+  citecolor=ForestGreen
+}
+
+%
+% Title
+%
+
+\title{The MinRank Problem: Survey, Implementation, and One Application}
+\author{Dario Gjorgjevski\\
+  \href{mailto:gjorgjevski.dario@students.finki.ukim.mk}
+  {\texttt{gjorgjevski.dario@students.finki.ukim.mk}}}
+\date{\textit{Project Work in Cryptography}\\[0.5\baselineskip]2015/2016}
+
+%
+% Document
+%
+ 
+\begin{document}
+\maketitle
+
+\section{Introduction}\label{sec:intro}
+Multivariate cryptography is the generic term for asymmetric cryptographic
+primitives based on multivariate polynomials over a finite field $\mathbb{F}_q$.
+In the case when the degree of these polynomials is $2$, we refer to them as
+multivariate quadratic (\MQ).  Note that the quadratic case is as complex as the
+general case (up to a polynomial-time reduction).  The most interesting one-way
+function in this context is the evaluation of multivariate polynomials.  Namely,
+given
+$\vec{f} = \left(f_1(x_1, \ldots, x_n), \ldots, f_\eta(x_1, \ldots, x_n)\right)
+\in \mathbb{K}[x_1, \ldots, x_n]^\eta$ (where $\mathbb{K}$ is the ground field),
+the one-way function is defined as follows:
+\begin{equation}\label{eq:mq-func}
+  F : \vec{x} = (x_1, \ldots, x_n) \in \mathbb{K}^n \mapsto \left(f_1(x_1,
+    \ldots, x_n), \ldots, f_\eta(x_1, \ldots, x_n)\right)\text{.}
+\end{equation}
+The problem of inverting~\eqref{eq:mq-func} can be shown to be $\NP$-hard by
+noticing that there is a trivial polynomial-time reduction from well-known
+$\NP$-complete problems such as $3\text{-}\SAT$.
+
+The MinRank problem ($\MR$) is a fundamental problem in linear algebra of
+finding a low-rank linear combination of matrices.  It was first stated and had
+its complexity analyzed in~\autocite{BFS99}.  The importance of the MinRank
+problem in cryptography stems from the fact that it was shown to be very closely
+related to several \MQ{} cryptosystems such as HFE~\autocite{Pat96,KS99} and
+TTM~\autocite{Moh99, GC00}.  In fact, as we shall see in~\cref{sec:mq-attk},
+$\MR$ instances can themselves be modeled as \MQ{} systems.
+
+In this essay I will attempt to provide a survey of the MinRank problem and some
+known methods for solving it, as well as look at the idea of using $\MR$
+instances as the basis of a \emph{zero-knowledge authentication protocol}.
+
+\section{The MinRank Problem}\label{sec:mr}
+\begin{definition}[MinRank over a field]\label{def:mr}
+  Let $\matr{M}_0;\, \matr{M}_1, \ldots, \matr{M}_m$ be matrices in
+  $\mathcal{M}_{\eta \times n}(\mathbb{K})$.  The MinRank problem instance
+  $\MR\left(m, \eta, n, r, \mathbb{K};\, \matr{M}_0;\, \matr{M}_1, \ldots,
+    \matr{M}_m\right)$ asks us to find an $m$-tuple
+  $\vec{\upalpha} = (\alpha_1, \ldots, \alpha_m) \in \mathbb{K}^m$ such that
+$$
+\rank\left(\sum\limits_{i = 1}^{m} \alpha_i \matr{M}_i - \matr{M}_0\right) \le
+r\text{.}
+$$
+\end{definition}
+\begin{remark}
+  In practice, we will mostly be concerned with the case when $\mathbb{K}$ is a
+  finite field, i.e., $\mathbb{K} = \mathbb{F}_q$.
+\end{remark}
+\begin{theorem}[Complexity of MinRank,
+  ~\autocite{BFS99,Cou01}]\label{thm:mr-comp}
+  The MinRank problem is $\NP$-complete.
+  \begin{proof}[Proof sketch]
+    There exists an effective algorithm to encode \emph{any} system of
+    multivariate polynomial equations as a MinRank instance.  Another idea is to
+    provide a reduction from the Syndrome Decoding problem to MinRank.
+  \end{proof}
+\end{theorem}
+
+Note that the proof sketch of~\cref{thm:mr-comp} implies that the MinRank
+problem is \emph{very general}, i.e., various other computationally hard
+problems of practical importance can be reduced to solving $\MR$ instances.
+
+\subsection{Solving MinRank Instances}
+The two most practical and most widely documented methods of solving $\MR$
+instances are:
+\begin{itemize}[noitemsep]
+\item The so-called ``kernel attack'';
+\item Modeling $\MR$ instances as \MQ{} systems.
+\end{itemize}
+
+\subsubsection{The Kernel Attack}\label{sec:kern-attk}
+This was the first non-trivial attack against MinRank and was proposed
+by~\textcite{GC00}.  The main idea is that instead of guessing $\vec{\upalpha}$,
+we can guess the kernel of the linear combination of the $\MR$ matrices (as
+given in~\cref{def:mr}).  Then, assuming that the kernel was guessed correctly,
+we can actually \emph{solve} for $\vec{\upalpha}$.
+
+More formally, let
+$\MR\left(m, \eta, n, r, \mathbb{F}_q;\, \matr{M}_0;\, \matr{M}_1, \ldots,
+  \matr{M}_m\right)$ be a given $\MR$ instance.  For some parameter
+$\vec{\upbeta} \in \mathbb{F}_q^m$, denote by $H_{\vec{\upbeta}}$ the linear
+combination $\sum\nolimits_{i=1}^{m}\beta_i \matr{M}_i - \matr{M}_0$.  We would
+like to have $\rank\left(H_{\vec{\upbeta}}\right) \le r$, i.e., $\vec{\upbeta}$
+to be a solution.  If that were the case, then by the rank-nullity theorem of
+linear algebra, we would have $\dim(\ker H_{\vec{\upbeta}}) \ge n - r$.
+
+We can proceed by randomly choosing $k$ vectors
+$\vec{x}^{(i)} \in \mathbb{F}_q^n,\ 1 \le i \le k$.  If these vectors are such
+that they fall into the kernel of the $\MR$ instance, then solving for
+$\vec{\upbeta}$ in
+\begin{equation}\label{eq:kern-attk}
+  \setlength{\arraycolsep}{0pt}
+  \newcolumntype{B}{>{{}}c<{{}}}
+  \left\{
+    \begin{array}{l B l}
+      H_{\vec{\upbeta}} \vec{x}^{(1)} & = & \vec{0} \\
+      H_{\vec{\upbeta}} \vec{x}^{(2)} & = & \vec{0} \\
+                                      & \vdots & \\
+      H_{\vec{\upbeta}} \vec{x}^{(k)} & = & \vec{0}
+    \end{array}
+  \right.
+\end{equation}
+would allow us to retrieve the instance's solution.  \eqref{eq:kern-attk} is a
+system in $k \eta$ equations and $m$ unknowns.  Since we
+want~\eqref{eq:kern-attk} to never be underdetermined and have its numbers of
+equations and unknowns match as closely as possible, we can choose
+$k = \ceil{\frac m \eta}$.
+
+It was established that there are at least $q^{n - r}$ vectors in
+$\ker H_{\vec{\upbeta}}$ whenever $\vec{\upbeta}$ is a solution.  Having that in
+mind, we can see that
+\begin{equation}\label{eq:kern-prob}
+  \Pr\left\{\left(x^{(1)},\ldots,x^{(k)}\right) \in \ker H_{\vec{\upbeta}}\right\}
+  \ge q^{-k r} = q^{-\ceil{\frac m \eta} r}\text{.}
+\end{equation}
+What~\eqref{eq:kern-prob} tells us is that on average we have to guess \& solve
+$q^{\ceil{\frac m \eta} r}$ times.  Accounting for the complexity of the
+solving~\eqref{eq:kern-attk}, we get an overall complexity of
+$\mathcal{O}\left(m \left(\ceil{\frac m \eta} \eta\right)^2 q^{\ceil{\frac m
+      \eta} r}\right)$.  The takeaway is that this attack provides a significant
+speedup over a brute-force search whenever $\ceil{\frac m \eta} r \ll m$.
+
+\subsubsection{\MQ{}-Solving Attacks}\label{sec:mq-attk}
+Modeling the MinRank problem as an \MQ{} system was first proposed
+by~\textcite{KS99}.  The key idea here is that instead of guessing, we try to
+explicitly construct the kernel of the linear combination of the $\MR$ matrices.
+
+Again, let
+$\MR\left(m, \eta, n, r, \mathbb{F}_q;\, \matr{M}_0;\, \matr{M}_1, \ldots,
+  \matr{M}_m\right)$ be a given $\MR$ instance and $H_{\vec{\upbeta}}$ be
+defined as in~\cref{sec:kern-attk}.  We already saw that whenever
+$\vec{\upbeta}$ is a solution, there are at least $n - r$ linearly independent
+vectors in $\ker H_{\vec{\upbeta}}$.  Proceed by trying to fix these vectors as
+follows:
+\begin{equation}\label{eq:fix-vecs}
+  \setlength{\savedcolsep}{\arraycolsep}
+  \setlength{\arraycolsep}{0pt}
+  \newcolumntype{B}{>{{}}c<{{}}}
+  \begin{array}{l B l}
+    \vec{x}^{(1)} & =
+    & \setlength{\arraycolsep}{\savedcolsep}
+      \begin{bmatrix}1 & 0 & \cdots & 0 & x^{(1)}_1 & \cdots & x^{(1)}_r\end{bmatrix}^T \\
+                  & \vdots & \\
+    \vec{x}^{(n - r)} & =
+    & \setlength{\arraycolsep}{\savedcolsep}
+      \begin{bmatrix}0 & 0 & \cdots & 1 & x^{(n - r)}_1 & \cdots & x^{(n - r)}_r \end{bmatrix}^T\text{.}
+  \end{array}
+\end{equation}
+\begin{remark}
+  \Cref{eq:fix-vecs} is true up to a \emph{change of basis}, so it might happen
+  that it does not help us arrive at a solution.
+\end{remark}
+
+Bearing this in mind, we can see that the \MQ{} system
+\begin{equation}\label{eq:mq-sys}
+  \left(\sum\limits_{i = 1}^{m}\beta_i \matr{M}_i - \matr{M}_0\right)_{\eta
+    \times n}
+  \begin{bmatrix}
+    1 & 0 & \cdots & 0 \\
+    0 & 1 & \cdots & 0 \\
+    \vdots & \vdots & \ddots & \vdots \\
+    0 & 0 & \cdots & 1 \\
+    x^{(1)}_1 & x^{(2)}_1 & \cdots & x^{(n - r)}_1 \\
+    \vdots & \vdots & \ddots & \vdots \\
+    x^{(1)}_r & x^{(2)}_r & \cdots & x^{(n - r)}_r
+  \end{bmatrix}_{n \times (n - r)} = \matr{0}_{\eta \times (n - r)}
+\end{equation}
+over
+$\mathbb{F}_q\left[\beta_1,\ldots,\beta_m,x^{(1)}_1,\ldots,x^{(n -
+    r)}_r\right]$, consisting of $\eta (n - r)$ equations in $r (n - r) + m$
+variables, accurately models the solution to the $\MR$ instance.  The complexity
+of solving~\eqref{eq:mq-sys} varies greatly depending on the method used --
+nevertheless, it is exponential in the worst case.  The authors
+of~\autocite{KS99} proposed using \emph{relinearization}.
+In~\cref{app:solv-groeb,app:solv-xl} two methods will be discussed:
+\hyperref[app:solv-groeb]{one} based on Gröbner bases and affine varieties, and
+\hyperref[app:solv-xl]{the other} based on \emph{eXtended Linearization} (XL).
+
+\subsection{Zero-Knowledge Authentication Based on MinRank}\label{sec:zka}
+The use $\MR$ instances as an underlying $\NP$-complete problem in constructing
+an efficient zero-knowledge authentication protocol was proposed
+by~\textcite{Cou01}.
+
+\subsubsection{Preliminaries}\label{sec:pre}
+\begin{definition}[Zero-knowledge proof]\label{def:zkp}
+  A \emph{zero-knowledge proof} is a method by which one party (the
+  \emph{prover} $\prover$) can prove to another party (the \emph{verifier}
+  $\verifier$) that a statement is true, without conveying \emph{any}
+  information apart from the fact that the statement is indeed true.
+\end{definition}
+A zero-knowledge proof must satisfy three properties:
+\begin{enumerate}
+\item \label{itm:cmp} \textbf{Completeness.} A legitimate prover always gets
+  accepted.
+\item \label{itm:snd} \textbf{Soundness.} An illegitimate prover is rejected
+  with some fixed probability.
+\item \label{itm:zk} \textbf{Zero-knowledge.} No verifier can extract any
+  information from a prover, even in multiple interactions.
+\end{enumerate}
+
+\subsubsection{The Authentication Scheme}\label{sec:sch}
+The key idea behind the authentication scheme is stated in~\cref{lem:rnk-mask}.
+\begin{lemma}\label{lem:rnk-mask}
+  Let $\matr{M}$ be an $\eta \times n$ matrix of rank $r \le \min(\eta, n)$.
+  Let $\matr{S}$ and $\matr{T}$ be two uniformly distributed random nonsingular
+  matrices of orders $\eta$ and $n$ resp.  Then $\matr{S M T}$ is uniformly
+  distributed among all $\eta \times n$ matrices of rank $r$.
+  \begin{proof}[Proof sketch]
+    $\matr{S}$ and $\matr{T}$ correspond to compositions of elementary row and
+    column operations resp., which preserve the rank of the matrix.  $\matr{M}$
+    and $\matr{S M T}$ are said to be \emph{matrix equivalent}.
+  \end{proof}
+\end{lemma}
+
+\Cref{lem:rnk-mask} tells us that given a $\MR$ instance, we can \emph{mask} its
+solution by multiplying it from the left and the right with nonsingular
+matrices.  All we need now is a way to force the prover to ``play by the
+rules.''  We define the \textbf{public key} to be a hard\footnote{Meaning both
+  the matrices $\matr{M}_0;\, \matr{M}_1, \ldots, \matr{M}_m$ and the solution
+  $\vec{\upalpha}$ are uniformly distributed.  See~\cref{app:mr-inst-gen} for
+  the exact algorithm.} $\MR$ instance
+$\MR\left(m, \eta, n, r, \mathbb{F}_q;\, \matr{M}_0;\, \matr{M}_1, \ldots,
+  \matr{M}_m\right)$, and the \textbf{private key} to be the solution
+$\vec{\upalpha}$ to the $\MR$ instance as per~\cref{def:mr}, with
+$\matr{M} = \sum\nolimits_{i = 1}^{m} \alpha_i \matr{M}_i - \matr{M}_0$.  The
+prover is going to convince the verifier of her knowledge of $\matr{M}$ (and
+$\vec{\upalpha}$).  The authentication is performed for multiple rounds: a
+prover $\prover$ succeeds in verifying herself if and only if she successfully
+answers all queries posed by the verifier $\verifier$.
+
+In order to get the prover $\prover$ to commit to playing by the rules, we use a
+collision-resistant hash function $\hash$ as a random oracle to which $\prover$
+makes commitments.  \Cref{fig:round} shows one round of MinRank authentication.
+
+\begin{theorem}[\autocite{Cou01}]\label{thm:mr-zk}
+  The MinRank authentication scheme is a \emph{zero-knowledge proof}.
+  \begin{proof}\leavevmode
+    \begin{enumerate}
+    \item \textbf{Completeness.} It is clear that a legitimate prover, i.e., one
+      with a correct $\vec{\upalpha}$ always gets verified.
+    \item \textbf{Soundness.} An illegitimate prover being able to get verified
+      implies that she either solved the $\MR$ instance or found a collision in
+      $\hash$.  Both of these are computationally unfeasible -- MinRank is
+      $\NP$-complete (\cref{thm:mr-comp}) and $\hash$ is assumed to be
+      collision-resistant. Since the queries $\mathcal{Q} \in \{1, 2\}$ can be
+      answered by any non-cheating prover, we see that the probability of an
+      illegitimate prover not being rejected is
+      $\left(\frac 2 3 + \ComplexityFont{negl}\right)^{\#\text{rounds}}$.
+    \item \textbf{Zero-knowledge.}  This is a direct corollary of
+      \cref{lem:rnk-mask}.
+    \end{enumerate}
+  \end{proof}
+\end{theorem}
+
+\begin{figure}[t!]
+  \centering \fbox{%
+    \procedure{}{%
+      \textbf{Verifier}\ \verifier \< \< \textbf{Prover}\ \prover \\
+      \< \< \matr{S} \sample \mathrm{GL}_{\eta}\left(\mathbb{F}_q\right) \\
+      \< \< \matr{T} \sample \mathrm{GL}_{n}\left(\mathbb{F}_q\right) \\
+      \< \< \matr{X} \sample \mathcal{M}_{\eta \times
+        n}\left(\mathbb{F}_q\right) \\
+      \< \< \vec{\upbeta}^{(1)} \sample \mathbb{F}_q^m \\
+      \< \< \matr{N}_1 \gets \sum\nolimits_{i = 1}^{m} \beta^{(1)}_i \matr{M}_i \\
+      \< \< \vec{\upbeta}^{(2)} \gets \vec{\upalpha} + \vec{\upbeta}^{(1)} \\
+      \< \< \matr{N}_2 \gets \sum\nolimits_{i = 1}^{m} \beta^{(2)}_i \matr{M}_i \\
+      \< \< \STX \gets (\matr{S}, \matr{T}, \matr{X}) \\
+      \< \sendmessageleft*[5cm]{\hash\left(\STX\right), \hash\left(\matr{S}
+          \matr{N}_1 \matr{T} + \matr{X}\right), \\
+        \hash\left(\matr{S} \matr{N}_2 \matr{T} + \matr{X} - \matr{S} \matr{M}_0
+          \matr{T}\right)} \< \\
+      \mathcal{Q} \sample \{0, 1, 2\} \< \< \\
+      \< \sendmessageright*[5cm]{\text{send query }\mathcal{Q}} \< \pclb
+      \pcintertext[dotted]{if $\mathcal{Q} = 0$} \\
+      \< \sendmessageleft*[5cm]{%
+        \matr{S} \matr{N}_1 \matr{T} + \matr{X}, \matr{S} \matr{N}_2 \matr{T} +
+        \matr{X} - \matr{S} \matr{M}_0 \matr{T}
+      } \< \\
+      \verify\left(\hash\left(\matr{S} \matr{N}_1 \matr{T} +
+          \matr{X}\right)\right)
+      \< \< \\
+      \verify\left(\hash\left(\matr{S} \matr{N}_2 \matr{T} + \matr{X} - \matr{S}
+          \matr{M}_0 \matr{T}\right)\right) \< \< \\
+      \begin{aligned}
+        \matr{S M T} \gets {} & (\matr{S} \matr{N}_2 \matr{T} + \matr{X} -
+        \matr{S} \matr{M}_0 \matr{T}) \pclb & {} - (\matr{S} \matr{N}_1 \matr{T}
+        + \matr{X})
+      \end{aligned} \< \< \\
+      \verify\left(\rank\left(\matr{S M T}\right) = r\right) \< \< \pclb
+      \pcintertext[dotted]{else if $\mathcal{Q} \in \{1, 2\}$} \\
+      \< \sendmessageleft*[5cm]{%
+        \STX, \vec{\upbeta}_\mathcal{Q}
+      } \< \\
+      \text{check that }\matr{S}\text{ \& }\matr{T}\text{ are nonsingular} \< \< \\
+      \verify\left(\hash\left(\STX\right)\right) \< \< \\
+      \matr{S}\matr{N}_\mathcal{Q}\matr{T} \gets \sum\nolimits_{i = 1}^{m}
+      \beta^{(\mathcal{Q})}_i\matr{S} \matr{M}_i \matr{T}
+      \< \< \\
+      \begin{aligned}
+        &\verify\left(\hash\left(\matr{S} \matr{N}_1 \matr{T} + \matr{X}\right)
+        \right) & \quad\text{if }\mathcal{Q} = 1 \pclb
+        &\verify\left(\hash\left(\matr{S} \matr{N}_2 \matr{T} + \matr{X} -
+            \matr{S} \matr{M}_0 \matr{T}\right)\right) & \quad\text{if
+        }\mathcal{Q} = 2
+      \end{aligned} \< \< }}
+  \caption{One Round of Affine MinRank Authentication}\label{fig:round}
+\end{figure}
+
+\section{Conclusion}
+The MinRank problem is of crucial importance to many cryptographic schemes and
+ideas.  We have seen that it embodies many computationally hard problems,
+including those used in various \MQ{} schemes and even cryptosystems based on
+decoding linear codes such as the McEliece cryptosystem.
+
+Schemes such as these and the one discussed in~\cref{sec:sch} are of interest to
+the world of ``post-quantum cryptography.''  The publication of Shor's
+algorithm~\autocite{Sho94} means that if a quantum computer were to be
+constructed, ``traditional cryptography''---cryptography based on integer
+factorization and discrete logarithms---would become immediately insecure.
+
+Furthermore, a few attacks on the MinRank problem were reviewed.  These attacks
+appear to be well-suited for attacking the MinRank authentication scheme.
+
+\printbibliography
+
+\appendix
+\section{Technical Documentation}\label{app:impl}
+The implementation was written in SageMath~\autocite{Sag15}.  It includes three
+files:
+\begin{itemize}[noitemsep]
+\item \texttt{mr\_auth.py}: this file provides MinRank instance generation and a
+  toy implementation of the zero-knowledge authentication scheme;
+\item \texttt{mr\_attk.py}: this file implements the kernel and \MQ{}-solving
+  attacks;
+\item \texttt{mr\_util.py}: this file provides some utility functions;
+\item \texttt{mr\_test.py}: this file runs some tests to showcase the
+  implementation.
+\end{itemize}
+All code was tested on an Intel i5-4670 CPU @ \SI{3.40}{\GHz} running an
+ArchLinux operating system.
+
+\subsection{Instance Generation}\label{app:mr-inst-gen}
+Instances are generated according to~\cref{alg:mr-inst-gen}.  Internally they
+are represented as \texttt{MinRankInstance} objects.  It is easy to see that
+this algorithm generates a correct instance.  It is also relatively fast:
+generating \num{10000} instances with $m = 10, \eta = n = 6, r = 3, q = 65521$
+required $\SI{10.252}{\second}$.
+
+\begin{algorithm}[t]
+  \renewcommand{\algorithmicrequire}{\textbf{Input:}}
+  \renewcommand{\algorithmicensure}{\textbf{Output:}}
+  \caption{MinRank Instance Generation~\autocite{Cou01}}\label{alg:mr-inst-gen}
+  \begin{algorithmic}[1]
+    \Require $m, \eta, n, r, q \in \mathbb{N}_+$ ($r \le \min(\eta, n)$)
+    \Ensure An instance $\MR\left(m, \eta, n, r, \mathbb{F}_q;\,
+      \matr{M}_0;\, \matr{M}_1, \ldots, \matr{M}_m\right)$ with solution
+      $\vec{\upalpha}$ and
+      $\matr{M} = \sum\nolimits_{i = 1}^{m} \alpha_i \matr{M}_i - \matr{M}_0$
+    \State $\matr{M}_0;\, \matr{M}_1, \ldots, \matr{M}_{m - 1} \sample
+      \mathcal{M}_{\eta \times n}\left(\mathbb{F}_q\right)$
+    \State $\matr{M} \sample \mathcal{M}^{\mathrm{rank} = r}_{\eta \times n}
+      \left(\mathbb{F}_q\right)$
+    \State $\vec{\upalpha} \sample \mathbb{F}_q^m \text{ s.t.\ }
+      \alpha_m \ne 0$
+    \State $\matr{M}_m \gets \left(\matr{M} + \matr{M}_0
+      - \sum\nolimits_{i = 1}^{m - 1}\alpha_i \matr{M}_i\right) \mathbin{/}
+      \alpha_m$ \Comment{This ensures that $\matr{M}_m$ is ``correct''
+      w.r.t.\ $\vec{\upalpha}$ and $\matr{M}$}
+    \State \Return $\MR\left(m, \eta, n, r, \mathbb{F}_q;\, \matr{M}_0;\,
+      \matr{M}_1, \ldots, \matr{M}_m\right)$, $\vec{\upalpha}$, $\matr{M}$
+  \end{algorithmic}
+\end{algorithm}
+
+\subsection{Running the Kernel Attack}\label{app:run-kern-attk}
+The implementation is very straightforward and basically
+follows~\cref{sec:kern-attk}.  In order to run the attack, invoke the
+\texttt{run\_kernel} method of a \texttt{MinRankAttack} object.  There is an
+optional boolean parameter \texttt{constrained\_run} which indicates whether the
+checking should stop after $q^{\ceil{\frac m \eta} r}$ attempts; otherwise it is
+done until a valid solution is found.
+
+\subsection{Solving the \MQ{} System Using Gröbner Bases}\label{app:solv-groeb}
+The authors of~\autocite{FLP08} proposed a one-to-one correspondence between the
+affine variety
+$$
+V(\mathcal{I}_{\mathrm{KS}}) = \{\vec{x} \in \mathbb{F}_q^{r (n - r) + m} :
+f(\vec{x}) = 0 \; \forall f \in \mathcal{I}_{\mathrm{KS}}\}
+$$
+and the solution of~\eqref{eq:mq-sys}, where $\mathcal{I}_{\mathrm{KS}}$ is the
+ideal generated by the equations of~\eqref{eq:mq-sys}.  This allows us to use
+the functionality of SageMath/\textsc{Singular} to compute a solution.
+
+The attack can be performed by invoking the \texttt{run\_groebner} method of a
+\texttt{MinRankAttack} object.  Internally, it uses the \textsc{Singular}
+procedure
+\href{https://www.singular.uni-kl.de/Manual/4-0-2/sing_403.htm}{\texttt{stdfglm}},
+which computes a Gröbner basis w.r.t.\ a degree-reverse lexicography ordering,
+and then converts it to lexicographic ordering using the FGLM algorithm.
+Lexicographic ordering is needed in order to ensure a triangular form of the
+system.  One can think of this method as a generalization of the Gaussian
+elimination to \MQ{} systems~\autocite[ch.\ 2, 3]{CLO15}.
+
+For tiny instances ($m, \eta, n \approx 7$), I found the kernel attack to be
+more effective, possibly because of its simplicity.  However,~\autocite{FLP08}
+states that the Gröbner basis attack is feasible even for parameter sets
+proposed in the MinRank authentication scheme.  In particular, the theoretical
+bound on the complexity of computing a Gröbner basis of a polynomial system with
+$m$ equations in $n$ variables is given by
+$\mathcal{O}\left(m \binom{n +
+    d_{\mathrm{reg}}}{d_{\mathrm{reg}}}^\omega\right)$ where $d_{\mathrm{reg}}$
+is the degree of regularity (i.e., the highest degree reached during the
+computation), and $2 \le \omega \le 3$ is the exponent in the complexity of
+matrix multiplication.  Despite this, the observed complexity was much smaller
+and can in fact be bounded by a \emph{polynomial} due to the structure
+of~\eqref{eq:mq-sys} (it is formed by bilinear equations).
+
+A problem which may arise is $\mathcal{I}_{\mathrm{KS}}$ ending up \emph{not
+  being radical}.  To eliminate that possibility, we append the field equations
+to~\eqref{eq:mq-sys}, which ensures that
+$\sqrt{\mathcal{I}_{\mathrm{KS}}} = \mathcal{I}_{\mathrm{KS}}$ while not
+changing the solution set.
+
+\subsection{Solving the \MQ{} System Using XL}\label{app:solv-xl}
+Relinearization, as it was proposed by~\autocite{KS99} was found to be
+inefficient as it introduced way too many additional variables.  To alleviate
+that issue, the authors of~\autocite{CKPS00} proposed a simplified and improved
+version of relinearization called \emph{eXtended Linearization} (XL).
+
+The idea is to raise the degree of the system sufficiently enough to be able to
+apply Gaussian elimination as if it were a linear system.  The hope is that this
+step yields a univariate polynomial which can be solved and substituted back in.
+
+The XL algorithm takes a degree parameter $D \ge 2$, which indicates the maximal
+degree to which the system will be raised.  It can be run using the
+\texttt{run\_xl} method of \texttt{MinRankAttack}.  Unfortunately, I found the
+XL algorithm to cope poorly with \MQ{} systems arising from MinRank instances.
+
+\subsection{Implementation of the Authentication Scheme}
+For the purposes of the MinRank authentication scheme, two main objects are
+provided:
+\begin{itemize}[noitemsep]
+\item A prover, represented by the \texttt{Prover} class;
+\item A verifier, represented by the \texttt{Verifier} class.
+\end{itemize}
+
+Both these objects are tied to \texttt{MinRankInstance} objects.  The
+\texttt{Prover} and \texttt{Verifier} classes mimic their corresponding roles as
+shown in~\cref{fig:round}.  A typical round of execution is shown
+in~\cref{lst:round}.  In order to provide a wrapper around the procedure shown
+in~\cref{lst:round}, the function \texttt{authentication\_driver} may be used,
+taking a prover, verifier, and (optionally) the number of rounds as parameters.
+\begin{listing}[h]
+\begin{minted}[frame=single,linenos]{python}
+# Assume P is the prover and V the verifier
+P.prepare_round()  # Compute everything the prover needs for a round
+P.send_hashes(V)   # Send the hashes, i.e., make a commitment
+V.send_query(P)    # Send the query to the prover who will answer it
+
+# Alternatively, execute this function
+authentication_driver(P, V, 35)  # Perform 35 rounds
+\end{minted}
+\caption{Executing One Round of MinRank Authentication}\label{lst:round}
+\end{listing}
+
+As a cryptographic hash function a built-in implementation of SHA-256 is
+used\footnote{Objects are hashed by hashing their internal representation.  This
+  is likely far from the optimal way, but it does serve its purpose; at least in
+  a toy implementation such as this one.}.  Due to the toy's implementation
+``closed world'' nature, there is \emph{no} concept of public and private keys.
+Instead, a \texttt{Prover} subclass \texttt{LegitimateProver} represents a
+prover who can be given ``access to'' a MinRank instance.  This is achieved by
+invoking the \texttt{give\_access} method of \texttt{MinRankInstance}.
+
+Interestingly, even in a real world implementation, the key sizes are quite
+small.  As part of~\cref{alg:mr-inst-gen},
+$\matr{M}_0;\, \matr{M}_1, \ldots, \matr{M}_{m - 1}; \, \matr{M}$ need not be
+transmitted as they can be generated from a common $\SI{160}{\bit}$
+seed~\autocite{Cou01}.  This leaves only $\matr{M}_m$ to be transmitted, giving
+a \SI[parse-numbers=false]{160 + \eta n \log_2 q}{\bit} public key.  The private
+key is \SI[parse-numbers=false]{m \log_2 q}{\bit}s long (needed for
+$\vec{\upalpha}$).
+
+\Cref{tbl:time} shows some time measurements of authentications with different
+parameter sets.  We see that parameter set D, which includes \num{81}
+$19 \times 19$ matrices over $\mathbb{F}_2$ is a lot slower than parameter sets
+A and C, both of which include \num{10} matrices (of dimension $6 \times 6$ and
+$11 \times 11$ resp.) over $\mathbb{F}_{65521}$.  As expected, we also notice
+that a successful authentication takes more time than an unsuccessful one.
+
+\begin{table}[b]
+  \centering
+  \caption{Time Needed for Authentications
+    (\num{100} Authentications, \num{35} Rounds Each)}\label{tbl:time}
+  \begin{tabular}{c S S}
+    \toprule
+    Parameter set~\autocite{Cou01} & {Time (legitimate $\P$, in \si{\second})}
+    & {Time (illegitimate $\P$, in \si{\second})} \\
+    \midrule
+    A & 18.349 & 1.763 \\
+    C & 133.610 & 11.450 \\
+    D & 1050.127 & 91.196 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+\end{document}
+
+%%% Local Variables:
+%%% TeX-command-extra-options: "-shell-escape"
+%%% TeX-master: t
+%%% End:
